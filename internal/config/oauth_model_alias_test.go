@@ -259,3 +259,47 @@ func TestSanitizeOAuthModelAlias_InjectsDefaultKiroWhenEmpty(t *testing.T) {
 		t.Fatal("expected default kiro aliases to be injected when OAuthModelAlias is nil")
 	}
 }
+
+func TestFindOAuthAliasMatches(t *testing.T) {
+	cfg := &Config{OAuthModelAlias: map[string][]OAuthModelAlias{
+		" Kiro ": {
+			{Name: "kiro-claude-sonnet-4-6", Alias: "claude-sonnet-4-6", Fork: true},
+		},
+		"github-copilot": {
+			{Name: "claude-sonnet-4.6", Alias: "claude-sonnet-4-6", Fork: true},
+		},
+	}}
+	cfg.SanitizeOAuthModelAlias()
+
+	matches := FindOAuthAliasMatches(cfg, " claude-sonnet-4-6 ")
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 matches, got %d", len(matches))
+	}
+	if matches[0].Channel != "kiro" || matches[0].SourceModel != "kiro-claude-sonnet-4-6" {
+		t.Fatalf("unexpected first match: %+v", matches[0])
+	}
+	if matches[1].Channel != "github-copilot" || matches[1].SourceModel != "claude-sonnet-4.6" {
+		t.Fatalf("unexpected second match: %+v", matches[1])
+	}
+}
+
+func TestFindOAuthAliasesForSource(t *testing.T) {
+	cfg := &Config{OAuthModelAlias: map[string][]OAuthModelAlias{
+		"kiro": {
+			{Name: "kiro-claude-sonnet-4-6", Alias: "claude-sonnet-4-6", Fork: true},
+			{Name: "kiro-claude-sonnet-4-6", Alias: "claude-sonnet-4-6-latest", Fork: false},
+		},
+	}}
+	cfg.SanitizeOAuthModelAlias()
+
+	matches := FindOAuthAliasesForSource(cfg, " KIRO ", " kiro-claude-sonnet-4-6 ")
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 matches, got %d", len(matches))
+	}
+	if matches[0].Alias != "claude-sonnet-4-6" || !matches[0].Fork {
+		t.Fatalf("unexpected first alias: %+v", matches[0])
+	}
+	if matches[1].Alias != "claude-sonnet-4-6-latest" || matches[1].Fork {
+		t.Fatalf("unexpected second alias: %+v", matches[1])
+	}
+}

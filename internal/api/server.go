@@ -24,8 +24,8 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/middleware"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api/modules"
 	ampmodule "github.com/router-for-me/CLIProxyAPI/v6/internal/api/modules/amp"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/kiro"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/cache"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
@@ -255,11 +255,14 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 		wsRoutes:            make(map[string]struct{}),
 	}
 	s.wsAuthEnabled.Store(cfg.WebsocketAuth)
+	s.handlers.UpdateRuntimeConfig(cfg)
 	// Save initial YAML snapshot
 	s.oldConfigYaml, _ = yaml.Marshal(cfg)
 	s.applyAccessConfig(nil, cfg)
 	if authManager != nil {
 		authManager.SetRetryConfig(cfg.RequestRetry, time.Duration(cfg.MaxRetryInterval)*time.Second, cfg.MaxRetryCredentials)
+		authManager.SetConfig(cfg)
+		authManager.SetOAuthModelAlias(cfg.OAuthModelAlias)
 	}
 	managementasset.SetCurrentConfig(cfg)
 	auth.SetQuotaCooldownDisabled(cfg.DisableCooling)
@@ -1022,6 +1025,11 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 	s.oldConfigYaml, _ = yaml.Marshal(cfg)
 
 	s.handlers.UpdateClients(&cfg.SDKConfig)
+	s.handlers.UpdateRuntimeConfig(cfg)
+	if s.handlers.AuthManager != nil {
+		s.handlers.AuthManager.SetConfig(cfg)
+		s.handlers.AuthManager.SetOAuthModelAlias(cfg.OAuthModelAlias)
+	}
 
 	if s.mgmt != nil {
 		s.mgmt.SetConfig(cfg)

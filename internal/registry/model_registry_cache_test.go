@@ -2,6 +2,16 @@ package registry
 
 import "testing"
 
+type testOAuthAliasEntry struct {
+	Name  string
+	Alias string
+	Fork  bool
+}
+
+type testOAuthAliasConfig struct {
+	OAuthModelAlias map[string][]testOAuthAliasEntry
+}
+
 func TestGetAvailableModelsReturnsClonedSnapshots(t *testing.T) {
 	r := newTestModelRegistry()
 	r.RegisterClient("client-1", "OpenAI", []*ModelInfo{{ID: "m1", OwnedBy: "team-a", DisplayName: "Model One"}})
@@ -50,5 +60,40 @@ func TestGetAvailableModelsInvalidatesCacheOnRegistryChanges(t *testing.T) {
 	models = r.GetAvailableModels("openai")
 	if len(models) != 1 {
 		t.Fatalf("expected model to reappear after resume, got %d", len(models))
+	}
+}
+
+func TestRegisterClient_InjectsOAuthAliasModels(t *testing.T) {
+	r := newTestModelRegistry()
+	cfg := &testOAuthAliasConfig{OAuthModelAlias: map[string][]testOAuthAliasEntry{
+		"kiro": {
+			{Name: "kiro-claude-sonnet-4-6", Alias: "claude-sonnet-4-6", Fork: true},
+			{Name: "kiro-claude-sonnet-4-6", Alias: "claude-sonnet-4-6-latest", Fork: false},
+		},
+	}}
+
+	r.RegisterClient("client-kiro", "kiro", []*ModelInfo{{
+		ID:          "kiro-claude-sonnet-4-6",
+		OwnedBy:     "amazon",
+		Type:        "claude",
+		DisplayName: "Kiro Sonnet",
+	}}, cfg)
+
+	models := r.GetModelsForClient("client-kiro")
+	if len(models) != 2 {
+		t.Fatalf("expected 2 client models after alias injection, got %d", len(models))
+	}
+	if models[0].ID != "kiro-claude-sonnet-4-6" {
+		t.Fatalf("unexpected source model order: %+v", models[0])
+	}
+	if models[1].ID != "claude-sonnet-4-6" {
+		t.Fatalf("expected fork alias model to be injected, got %+v", models[1])
+	}
+	if got := r.GetModelProviders("claude-sonnet-4-6"); len(got) != 1 || got[0] != "kiro" {
+		t.Fatalf("expected alias provider to resolve to kiro, got %v", got)
+	}
+	available := r.GetAvailableModels("openai")
+	if len(available) != 2 {
+		t.Fatalf("expected alias in available models, got %d entries", len(available))
 	}
 }

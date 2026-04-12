@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	internalconfig "github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
@@ -114,5 +115,25 @@ func TestGetRequestDetails_PreservesSuffix(t *testing.T) {
 				t.Fatalf("getRequestDetails() model = %v, want %v", model, tt.wantModel)
 			}
 		})
+	}
+}
+
+func TestGetRequestDetails_UsesOAuthAliasProviderFallback(t *testing.T) {
+	handler := NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, coreauth.NewManager(nil, nil, nil))
+	handler.UpdateRuntimeConfig(&internalconfig.Config{OAuthModelAlias: map[string][]internalconfig.OAuthModelAlias{
+		"kiro": {
+			{Name: "kiro-claude-sonnet-4-6", Alias: "claude-sonnet-4-6", Fork: true},
+		},
+	}})
+
+	providers, model, errMsg := handler.getRequestDetails("claude-sonnet-4-6")
+	if errMsg != nil {
+		t.Fatalf("expected alias fallback to avoid unknown provider, got %v", errMsg)
+	}
+	if !reflect.DeepEqual(providers, []string{"kiro"}) {
+		t.Fatalf("expected kiro provider from alias fallback, got %v", providers)
+	}
+	if model != "claude-sonnet-4-6" {
+		t.Fatalf("expected model to stay unchanged, got %q", model)
 	}
 }

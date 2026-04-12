@@ -34,13 +34,15 @@ type AmpModule struct {
 	enabled         bool
 	registerOnce    sync.Once
 
+	configMu   sync.RWMutex
+	lastConfig *config.AmpCode
+
 	// restrictToLocalhost controls localhost-only access for management routes (hot-reloadable)
 	restrictToLocalhost bool
 	restrictMu          sync.RWMutex
 
-	// configMu protects lastConfig for partial reload comparison
-	configMu   sync.RWMutex
-	lastConfig *config.AmpCode
+	// runtimeConfig keeps the latest full config for alias-aware routing helpers.
+	runtimeConfig *config.Config
 }
 
 // New creates a new Amp routing module with the given options.
@@ -125,6 +127,7 @@ func (m *AmpModule) Register(ctx modules.Context) error {
 	m.registerOnce.Do(func() {
 		// Initialize model mapper from config (for routing unavailable models to alternatives)
 		m.modelMapper = NewModelMapper(settings.ModelMappings)
+		m.runtimeConfig = ctx.Config
 
 		// Store initial config for partial reload comparison
 		m.lastConfig = new(settings)
@@ -178,6 +181,7 @@ func (m *AmpModule) getAuthMiddleware(ctx modules.Context) gin.HandlerFunc {
 // Only updates components that have actually changed to avoid unnecessary work.
 // Supports hot-reload for: model-mappings, upstream-api-key, upstream-url, restrict-management-to-localhost.
 func (m *AmpModule) OnConfigUpdated(cfg *config.Config) error {
+	m.runtimeConfig = cfg
 	newSettings := cfg.AmpCode
 
 	// Get previous config for comparison

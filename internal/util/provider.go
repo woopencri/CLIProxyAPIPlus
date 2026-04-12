@@ -14,23 +14,9 @@ import (
 
 // GetProviderName determines all AI service providers capable of serving a registered model.
 // It first queries the global model registry to retrieve the providers backing the supplied model name.
-// When the model has not been registered yet, it falls back to legacy string heuristics to infer
-// potential providers.
-//
-// Supported providers include (but are not limited to):
-//   - "gemini" for Google's Gemini family
-//   - "codex" for OpenAI GPT-compatible providers
-//   - "claude" for Anthropic models
-//   - "qwen" for Alibaba's Qwen models
-//   - "openai-compatibility" for external OpenAI-compatible providers
-//
-// Parameters:
-//   - modelName: The name of the model to identify providers for.
-//   - cfg: The application configuration containing OpenAI compatibility settings.
-//
-// Returns:
-//   - []string: All provider identifiers capable of serving the model, ordered by preference.
-func GetProviderName(modelName string) []string {
+// When the model has not been registered yet, it falls back to oauth-model-alias channel resolution
+// and finally to legacy provider heuristics.
+func GetProviderName(modelName string, cfgs ...*config.Config) []string {
 	if modelName == "" {
 		return nil
 	}
@@ -39,6 +25,7 @@ func GetProviderName(modelName string) []string {
 	seen := make(map[string]struct{})
 
 	appendProvider := func(name string) {
+		name = strings.TrimSpace(name)
 		if name == "" {
 			return
 		}
@@ -53,6 +40,17 @@ func GetProviderName(modelName string) []string {
 		appendProvider(provider)
 	}
 
+	if len(providers) > 0 {
+		return providers
+	}
+
+	var cfg *config.Config
+	if len(cfgs) > 0 {
+		cfg = cfgs[0]
+	}
+	for _, match := range config.FindOAuthAliasMatches(cfg, modelName) {
+		appendProvider(match.Channel)
+	}
 	if len(providers) > 0 {
 		return providers
 	}

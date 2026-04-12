@@ -260,8 +260,11 @@ type BaseAPIHandler struct {
 	// AuthManager manages auth lifecycle and execution in the new architecture.
 	AuthManager *coreauth.Manager
 
-	// Cfg holds the current application configuration.
+	// Cfg holds the current application SDK configuration.
 	Cfg *config.SDKConfig
+
+	// RuntimeConfig holds the current full application configuration for routing helpers.
+	RuntimeConfig *config.Config
 }
 
 // NewBaseAPIHandlers creates a new API handlers instance.
@@ -275,11 +278,15 @@ type BaseAPIHandler struct {
 //   - *BaseAPIHandler: A new API handlers instance
 func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *coreauth.Manager) *BaseAPIHandler {
 	h := &BaseAPIHandler{
-		Cfg:         cfg,
-		AuthManager: authManager,
+		Cfg:           cfg,
+		AuthManager:   authManager,
+		RuntimeConfig: nil,
 	}
 	return h
 }
+
+// UpdateRuntimeConfig updates the handlers' full runtime configuration.
+func (h *BaseAPIHandler) UpdateRuntimeConfig(cfg *config.Config) { h.RuntimeConfig = cfg }
 
 // UpdateClients updates the handlers' client list and configuration.
 // This method is called when the configuration or authentication tokens change.
@@ -797,14 +804,14 @@ func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string
 	parsed := thinking.ParseSuffix(resolvedModelName)
 	baseModel := strings.TrimSpace(parsed.ModelName)
 
-	providers = util.GetProviderName(baseModel)
+	providers = util.GetProviderName(baseModel, h.RuntimeConfig)
 	// Fallback: if baseModel has no provider but differs from resolvedModelName,
 	// try using the full model name. This handles edge cases where custom models
 	// may be registered with their full suffixed name (e.g., "my-model(8192)").
 	// Evaluated in Story 11.8: This fallback is intentionally preserved to support
 	// custom model registrations that include thinking suffixes.
 	if len(providers) == 0 && baseModel != resolvedModelName {
-		providers = util.GetProviderName(resolvedModelName)
+		providers = util.GetProviderName(resolvedModelName, h.RuntimeConfig)
 	}
 
 	if len(providers) == 0 {

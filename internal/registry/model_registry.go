@@ -6,6 +6,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -231,10 +232,16 @@ func (r *ModelRegistry) triggerModelsUnregistered(provider, clientID string) {
 //   - clientID: Unique identifier for the client
 //   - clientProvider: Provider name (e.g., "gemini", "claude", "openai")
 //   - models: List of models that this client can provide
-func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models []*ModelInfo) {
+func (r *ModelRegistry) RegisterClient(clientID, clientProvider string, models []*ModelInfo, aliasSources ...any) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	r.ensureAvailableModelsCacheLocked()
+
+	var aliasSource any
+	if len(aliasSources) > 0 {
+		aliasSource = aliasSources[0]
+	}
+	models = expandOAuthAliasModels(aliasSource, clientProvider, models)
 
 	provider := strings.ToLower(clientProvider)
 	uniqueModelIDs := make([]string, 0, len(models))
@@ -566,6 +573,131 @@ func cloneModelInfosUnique(models []*ModelInfo) []*ModelInfo {
 		cloned = append(cloned, cloneModelInfo(model))
 	}
 	return cloned
+}
+
+func expandOAuthAliasModels(aliasSource any, provider string, models []*ModelInfo) []*ModelInfo {
+	if aliasSource == nil || len(models) == 0 {
+		return models
+	}
+	channel := strings.ToLower(strings.TrimSpace(provider))
+	if channel == "" {
+		return models
+	}
+
+	aliasEntries := extractOAuthAliasEntries(aliasSource, channel)
+	if len(aliasEntries) == 0 {
+		return models
+	}
+
+	seen := make(map[string]struct{}, len(models))
+	expanded := make([]*ModelInfo, 0, len(models))
+	for _, model := range models {
+		if model == nil || strings.TrimSpace(model.ID) == "" {
+			continue
+		}
+		expanded = append(expanded, model)
+		seen[strings.ToLower(strings.TrimSpace(model.ID))] = struct{}{}
+	}
+	if len(expanded) == 0 {
+		return models
+	}
+
+	for _, model := range models {
+		if model == nil {
+			continue
+		}
+		sourceKey := strings.ToLower(strings.TrimSpace(model.ID))
+		for _, entry := range aliasEntries {
+			if !entry.Fork || entry.SourceKey != sourceKey {
+				continue
+			}
+			aliasID := entry.Alias
+			aliasKey := strings.ToLower(aliasID)
+			if aliasKey == "" {
+				continue
+			}
+			if _, exists := seen[aliasKey]; exists {
+				continue
+			}
+			aliasModel := cloneModelInfo(model)
+			aliasModel.ID = aliasID
+			if strings.TrimSpace(aliasModel.DisplayName) == "" || strings.EqualFold(strings.TrimSpace(aliasModel.DisplayName), strings.TrimSpace(model.ID)) {
+				aliasModel.DisplayName = aliasID
+			}
+			if strings.TrimSpace(aliasModel.Name) == "" || strings.EqualFold(strings.TrimSpace(aliasModel.Name), strings.TrimSpace(model.ID)) {
+				aliasModel.Name = aliasID
+			}
+			expanded = append(expanded, aliasModel)
+			seen[aliasKey] = struct{}{}
+		}
+	}
+
+	return expanded
+}
+
+type oauthAliasEntry struct {
+	SourceKey string
+	Alias     string
+	Fork      bool
+}
+
+func extractOAuthAliasEntries(aliasSource any, channel string) []oauthAliasEntry {
+	value := reflect.ValueOf(aliasSource)
+	if !value.IsValid() {
+		return nil
+	}
+	if value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return nil
+		}
+		field := value.Elem().FieldByName("OAuthModelAlias")
+		if field.IsValid() {
+			value = field
+		}
+	}
+	if value.Kind() != reflect.Map {
+		return nil
+	}
+
+	iter := value.MapRange()
+	for iter.Next() {
+		key := strings.ToLower(strings.TrimSpace(fmt.Sprint(iter.Key().Interface())))
+		if key != channel {
+			continue
+		}
+		entriesValue := iter.Value()
+		if entriesValue.Kind() != reflect.Slice {
+			continue
+		}
+		entries := make([]oauthAliasEntry, 0, entriesValue.Len())
+		for i := 0; i < entriesValue.Len(); i++ {
+			entry := entriesValue.Index(i)
+			if entry.Kind() == reflect.Ptr {
+				if entry.IsNil() {
+					continue
+				}
+				entry = entry.Elem()
+			}
+			if entry.Kind() != reflect.Struct {
+				continue
+			}
+			nameField := entry.FieldByName("Name")
+			aliasField := entry.FieldByName("Alias")
+			forkField := entry.FieldByName("Fork")
+			name := strings.TrimSpace(fmt.Sprint(nameField.Interface()))
+			alias := strings.TrimSpace(fmt.Sprint(aliasField.Interface()))
+			fork := forkField.IsValid() && forkField.Kind() == reflect.Bool && forkField.Bool()
+			if name == "" || alias == "" || strings.EqualFold(name, alias) {
+				continue
+			}
+			entries = append(entries, oauthAliasEntry{SourceKey: strings.ToLower(name), Alias: alias, Fork: fork})
+		}
+		if len(entries) == 0 {
+			return nil
+		}
+		return entries
+	}
+	return nil
 }
 
 // UnregisterClient removes a client and decrements counts for its models

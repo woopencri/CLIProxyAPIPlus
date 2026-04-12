@@ -2,6 +2,14 @@ package config
 
 import "strings"
 
+// OAuthAliasMatch describes a resolved oauth-model-alias entry.
+type OAuthAliasMatch struct {
+	Channel     string
+	SourceModel string
+	Alias       string
+	Fork        bool
+}
+
 // defaultKiroAliases returns default oauth-model-alias entries for Kiro.
 // These aliases expose standard Claude IDs for Kiro-prefixed upstream models.
 func defaultKiroAliases() []OAuthModelAlias {
@@ -58,4 +66,69 @@ func GitHubCopilotAliasesFromModels(modelIDs []string) []OAuthModelAlias {
 		aliases = append(aliases, OAuthModelAlias{Name: id, Alias: hyphenID, Fork: true})
 	}
 	return aliases
+}
+
+// FindOAuthAliasMatches returns all oauth-model-alias entries whose alias matches modelName.
+func FindOAuthAliasMatches(cfg *Config, modelName string) []OAuthAliasMatch {
+	if cfg == nil {
+		return nil
+	}
+	modelKey := strings.ToLower(strings.TrimSpace(modelName))
+	if modelKey == "" {
+		return nil
+	}
+	matches := make([]OAuthAliasMatch, 0)
+	for rawChannel, aliases := range cfg.OAuthModelAlias {
+		channel := strings.ToLower(strings.TrimSpace(rawChannel))
+		if channel == "" || len(aliases) == 0 {
+			continue
+		}
+		for _, entry := range aliases {
+			name := strings.TrimSpace(entry.Name)
+			alias := strings.TrimSpace(entry.Alias)
+			if name == "" || alias == "" {
+				continue
+			}
+			if strings.ToLower(alias) != modelKey {
+				continue
+			}
+			matches = append(matches, OAuthAliasMatch{Channel: channel, SourceModel: name, Alias: alias, Fork: entry.Fork})
+		}
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+	return matches
+}
+
+// FindOAuthAliasesForSource returns oauth-model-alias entries for one channel/source model pair.
+func FindOAuthAliasesForSource(cfg *Config, channel, sourceModel string) []OAuthAliasMatch {
+	if cfg == nil {
+		return nil
+	}
+	channelKey := strings.ToLower(strings.TrimSpace(channel))
+	sourceKey := strings.ToLower(strings.TrimSpace(sourceModel))
+	if channelKey == "" || sourceKey == "" {
+		return nil
+	}
+	aliases := cfg.OAuthModelAlias[channelKey]
+	if len(aliases) == 0 {
+		return nil
+	}
+	matches := make([]OAuthAliasMatch, 0)
+	for _, entry := range aliases {
+		name := strings.TrimSpace(entry.Name)
+		alias := strings.TrimSpace(entry.Alias)
+		if name == "" || alias == "" {
+			continue
+		}
+		if strings.ToLower(name) != sourceKey {
+			continue
+		}
+		matches = append(matches, OAuthAliasMatch{Channel: channelKey, SourceModel: name, Alias: alias, Fork: entry.Fork})
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+	return matches
 }

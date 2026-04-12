@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	log "github.com/sirupsen/logrus"
@@ -81,6 +82,7 @@ type FallbackHandler struct {
 	getProxy           func() *httputil.ReverseProxy
 	modelMapper        ModelMapper
 	forceModelMappings func() bool
+	runtimeConfig      *config.Config
 }
 
 // NewFallbackHandler creates a new fallback handler wrapper
@@ -93,14 +95,19 @@ func NewFallbackHandler(getProxy func() *httputil.ReverseProxy) *FallbackHandler
 }
 
 // NewFallbackHandlerWithMapper creates a new fallback handler with model mapping support
-func NewFallbackHandlerWithMapper(getProxy func() *httputil.ReverseProxy, mapper ModelMapper, forceModelMappings func() bool) *FallbackHandler {
+func NewFallbackHandlerWithMapper(getProxy func() *httputil.ReverseProxy, mapper ModelMapper, forceModelMappings func() bool, runtimeConfig ...*config.Config) *FallbackHandler {
 	if forceModelMappings == nil {
 		forceModelMappings = func() bool { return false }
+	}
+	var cfg *config.Config
+	if len(runtimeConfig) > 0 {
+		cfg = runtimeConfig[0]
 	}
 	return &FallbackHandler{
 		getProxy:           getProxy,
 		modelMapper:        mapper,
 		forceModelMappings: forceModelMappings,
+		runtimeConfig:      cfg,
 	}
 }
 
@@ -170,7 +177,7 @@ func (fh *FallbackHandler) WrapHandler(handler gin.HandlerFunc) gin.HandlerFunc 
 			}
 
 			mappedBaseModel := thinking.ParseSuffix(mappedModel).ModelName
-			mappedProviders := util.GetProviderName(mappedBaseModel)
+			mappedProviders := util.GetProviderName(mappedBaseModel, fh.runtimeConfig)
 			if len(mappedProviders) == 0 {
 				return "", nil
 			}
@@ -202,11 +209,11 @@ func (fh *FallbackHandler) WrapHandler(handler gin.HandlerFunc) gin.HandlerFunc 
 
 			// If no mapping applied, check for local providers
 			if !usedMapping {
-				providers = util.GetProviderName(normalizedModel)
+				providers = util.GetProviderName(normalizedModel, fh.runtimeConfig)
 			}
 		} else {
 			// DEFAULT MODE: Check local providers first, then mappings as fallback
-			providers = util.GetProviderName(normalizedModel)
+			providers = util.GetProviderName(normalizedModel, fh.runtimeConfig)
 
 			if len(providers) == 0 {
 				// No providers configured - check if we have a model mapping

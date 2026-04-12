@@ -499,9 +499,9 @@ func (h *OpenAIResponsesAPIHandler) websocketUpstreamSupportsIncrementalInputFor
 
 	parsed := thinking.ParseSuffix(resolvedModelName)
 	baseModel := strings.TrimSpace(parsed.ModelName)
-	providers := util.GetProviderName(baseModel)
+	providers := util.GetProviderName(baseModel, h.RuntimeConfig)
 	if len(providers) == 0 && baseModel != resolvedModelName {
-		providers = util.GetProviderName(resolvedModelName)
+		providers = util.GetProviderName(resolvedModelName, h.RuntimeConfig)
 	}
 	if len(providers) == 0 {
 		return false

@@ -86,7 +86,7 @@ func (m *DefaultModelMapper) MapModel(requestedModel string) string {
 	targetResult := thinking.ParseSuffix(targetModel)
 
 	// Verify target model has available providers (use base model for lookup)
-	providers := util.GetProviderName(targetResult.ModelName)
+	providers := util.GetProviderName(targetResult.ModelName, nil)
 	if len(providers) == 0 {
 		log.Debugf("amp model mapping: target model %s has no available providers, skipping mapping", targetModel)
 		return ""
